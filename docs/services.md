@@ -118,8 +118,8 @@ VIS services are disabled by default. Configure and enable only the services nee
 
 - Views appliance capacity and service partition health.
 - Shows CPU, memory, and aggregate storage usage.
-- Displays each service partition in VMDK order with capacity, used, and available space.
-- Provides an Expand Filesystem action after a backing VMDK has been increased.
+- Displays each service partition in Proxmox SCSI-disk order with capacity, used, and available space.
+- Provides an Expand Filesystem action after its native Proxmox virtual disk has been increased.
 - Refreshes and grows filesystems online when possible.
 
 ## ↻ Updates

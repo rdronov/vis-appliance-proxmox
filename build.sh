@@ -1,30 +1,36 @@
-#!/bin/bash -x
+#!/usr/bin/env bash
+set -euo pipefail
 
-export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/VMware OVF Tool:/Applications/VMware Fusion.app/Contents/Library/VMware OVF Tool:${PATH}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${REPO_ROOT}"
 
-echo "Building VIS OVA Appliance ..."
-mkdir -p output-vmware-iso
-find output-vmware-iso -mindepth 1 -maxdepth 1 -exec rm -rf "{}" \;
+PACKER_TEMPLATE="packer/vis.pkr.hcl"
+PACKER_VAR_FILE="${1:-${PACKER_VAR_FILE:-packer/proxmox.pkrvars.hcl}}"
 
-echo "Applying packer build to vis.json ..."
-packer build -var-file=vis-builder.json -var-file=vis-version.json vis.json
-
-echo "Creating split OVA release artifacts ..."
-OVA_PATH=$(find output-vmware-iso -maxdepth 1 -type f -name "*.ova" | head -n 1)
-
-if [ -z "${OVA_PATH}" ]; then
-  echo "No OVA found in output-vmware-iso"
+if ! command -v packer >/dev/null 2>&1; then
+  echo "packer is required: https://developer.hashicorp.com/packer/install" >&2
   exit 1
 fi
 
-OVA_NAME=$(basename "${OVA_PATH}")
+if [ ! -f "${PACKER_VAR_FILE}" ]; then
+  echo "Packer variable file not found: ${PACKER_VAR_FILE}" >&2
+  echo "Create it with: cp packer/proxmox.pkrvars.hcl.example packer/proxmox.pkrvars.hcl" >&2
+  exit 1
+fi
 
-(
-  cd output-vmware-iso || exit 1
-  shasum -a 256 "${OVA_NAME}" > "${OVA_NAME}.sha256"
-  split -b 1900m "${OVA_NAME}" "${OVA_NAME}.part-"
-  shasum -a 256 "${OVA_NAME}".part-* > "${OVA_NAME}.parts.sha256"
-)
+if grep -q "replace-with-" "${PACKER_VAR_FILE}"; then
+  echo "Replace all placeholder credentials in ${PACKER_VAR_FILE} before building." >&2
+  exit 1
+fi
 
-echo "Build artifacts:"
-ls -lh output-vmware-iso/*.ova output-vmware-iso/*.sha256 output-vmware-iso/*.ova.part-*
+echo "> Initializing the Proxmox Packer plugin..."
+packer init "${PACKER_TEMPLATE}"
+
+echo "> Validating the Proxmox-native VIS template..."
+packer fmt -check "${PACKER_TEMPLATE}"
+packer validate -var-file="${PACKER_VAR_FILE}" "${PACKER_TEMPLATE}"
+
+echo "> Building VIS directly on Proxmox VE..."
+packer build -var-file="${PACKER_VAR_FILE}" "${PACKER_TEMPLATE}"
+
+echo "> Build complete. The resulting VMID is a Proxmox VE template; no VMDK, OVF, or OVA conversion was performed."

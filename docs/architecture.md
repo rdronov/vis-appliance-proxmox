@@ -46,7 +46,7 @@ The default service disks are:
 | Disk 5 | `/opt/vis/data/dns` | 2 GB |
 | Disk 6 | `/opt/vis/data/identity` | 2 GB |
 
-Each service data path is on its own VMDK so a busy depot or registry can be expanded without consuming space from another VIS service.
+Each service data path is on its own native Proxmox virtual disk so a busy depot or registry can be expanded without consuming space from another VIS service. The template uses raw VirtIO-SCSI disks directly on the selected PVE storage; it is not derived from VMDK media.
 
 By default VIS stores application state in:
 

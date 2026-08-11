@@ -27,7 +27,7 @@ Good contributions usually follow these guidelines:
 - Keep the UI consistent with the established VIS pages. Avoid one-off controls when an existing form, toggle, badge, notice, or copy-row pattern already exists.
 - Treat appliance changes as product changes. If a feature requires packages, systemd units, directories, first-boot setup, firewall behavior, or generated configuration, update the Packer scripts as part of the same change.
 - Add tests for behavior that can regress: service seeding, route validation, adapter output, rendered controls, required-configuration gates, logs, and Packer expectations.
-- Do not include private artifacts, credentials, SSH keys, ISO files, VCF Download Tool archives, generated OVAs, or split release files in commits.
+- Do not include private artifacts, credentials, SSH keys, ISO files, VCF Download Tool archives, Packer variable files, or deployment environment files in commits.
 - Update documentation when behavior changes. A contributor should be able to understand how to build, deploy, configure, or test the feature without reading the implementation first.
 - Validate locally before submitting. At minimum, run focused tests for the area changed and regenerate docs when Markdown changes.
 
@@ -42,7 +42,7 @@ For local web application development:
 - A shell environment on macOS, Linux, or another Unix-like workstation.
 - The VIS repository checked out locally.
 
-For appliance or Packer development, also review the [Build](build.html) page because those workflows require Packer, OVF Tool, an Ubuntu ISO, and access to a standalone ESX build host.
+For appliance or Packer development, also review the [Build](build.html) page because those workflows require Packer, an Ubuntu ISO on PVE storage, and access to the Proxmox API.
 
 ## Repository Layout
 
@@ -53,9 +53,9 @@ For appliance or Packer development, also review the [Build](build.html) page be
 | `docs/` | Markdown and generated HTML documentation |
 | `scripts/` | Packer provisioning and deployment helper scripts |
 | `files/` | Appliance setup payloads copied into the VM |
-| `vis.json` | Packer template |
-| `vis-version.json` | Appliance version, default VM sizing, disk layout, and OVF defaults |
-| `vis-builder.json` | Local ESX build-host settings |
+| `packer/vis.pkr.hcl` | Proxmox-native Packer template and sizing defaults |
+| `packer/*.pkrvars.hcl` | Ignored private PVE builder settings |
+| `deploy/` | Proxmox clone and first-boot configuration examples |
 
 ## Run the Web App Locally
 

@@ -70,7 +70,7 @@
 <tr><td>Disk 5</td><td><code>/opt/vis/data/dns</code></td><td>2 GB</td></tr>
 <tr><td>Disk 6</td><td><code>/opt/vis/data/identity</code></td><td>2 GB</td></tr>
 </tbody></table>
-<p>Each service data path is on its own VMDK so a busy depot or registry can be expanded without consuming space from another VIS service.</p>
+<p>Each service data path is on its own native Proxmox virtual disk so a busy depot or registry can be expanded without consuming space from another VIS service. The template uses raw VirtIO-SCSI disks directly on the selected PVE storage; it is not derived from VMDK media.</p>
 <p>By default VIS stores application state in:</p>
 <pre><code>/opt/vis/state/vis.db</code></pre>
 <p>Set <code>VIS_DB_PATH</code> for local development and tests.</p>

@@ -1,145 +1,91 @@
 # Deploy
 
-Deploy the VIS OVA to either a vCenter Server or a standalone ESX host. OVF properties are used to set up the initial appliance, including basic networking information, OS credentials, VIS application credentials, an optional SSH public key, and the Docker pod CIDR.
+Deploy VIS by cloning the Packer-built Proxmox template. Proxmox Cloud-Init configures the guest account and network; a short-lived vendor-data snippet supplies VIS-specific settings to the first-boot service.
 
-## Table of Contents
+No image import or disk conversion is involved.
 
-- [Resource Requirements](#resource-requirements)
-- [Download Split OVA from GitHub](#download-split-ova-from-github)
-- [vCenter Server Deployment](#vcenter-server-deployment)
-- [Standalone ESX Deployment with OVF Tool](#standalone-esx-deployment-with-ovf-tool)
+## Resource requirements
 
-## Resource Requirements
-
-VIS requires the following minimum virtual hardware:
-
-| Resource | Minimum |
-| --- | --- |
+| Resource | Default |
+| --- | ---: |
 | CPU | 2 vCPU |
 | Memory | 4 GB |
-| Storage | 30 GB minimum |
+| Storage | 319 GB logical across six thin-provisioned disks |
 
-Storage consumption will increase based on which services are enabled and how they are used. Software Depot, Container Registry, and backup repository usage can grow significantly as VCF bundles, container images, and backup artifacts are added.
+Actual physical use is initially much smaller on thin-capable storage. Depot, registry, and backup consumption can grow substantially.
 
-## Download Split OVA from GitHub
+## Prepare snippet storage
 
-GitHub release assets have a file size limit, so VIS release OVAs may be published as split parts. Download every part and the checksum manifest before reconstructing the OVA.
+The deployment helper runs on a Proxmox node and needs a directory-backed storage with the `Snippets` content type enabled. The default local path is `/var/lib/vz/snippets` and the default storage ID is `local`.
 
-Example release assets:
+In the PVE UI, open **Datacenter > Storage**, edit the selected directory storage, and enable **Snippets**. In a cluster, use snippet storage accessible from the node that owns the VM.
+
+## Configure a clone
+
+On a Proxmox node, from a checkout of this repository:
+
+```shell
+cp deploy/proxmox.env.example deploy/my-vis.env
+chmod 600 deploy/my-vis.env
+```
+
+Set at least:
+
+- `TEMPLATE_VMID`: the VMID created by Packer.
+- `VM_ID` and `VM_NAME`: unique values for the clone.
+- `VIS_FQDN`, `VIS_IP_CIDR`, gateway, DNS, search domain, and NTP.
+- `VIS_SSH_PUBLIC_KEY_FILE`, an OS password, or both. Key-only deployments lock password login and grant `visadmin` passwordless sudo; password deployments use normal password-backed sudo.
+- A unique `VIS_ADMIN_PASSWORD` of at least 12 characters.
+- A Docker pod CIDR that does not overlap the management network or VCF networks.
+
+The sample contains no working default passwords and is ignored after it is copied to an `.env` filename.
+
+## Create and start the appliance
+
+```shell
+sudo ./scripts/deploy_vis_proxmox.sh deploy/my-vis.env
+```
+
+The helper:
+
+1. Validates VMIDs, IPv4 networking, FQDN, password length, and pod-network overlap.
+2. Runs `qm clone` against the native Proxmox template.
+3. Applies `ipconfig0`, DNS, search domain, guest account, SSH key, and QEMU Guest Agent settings.
+4. Attaches VIS configuration as Cloud-Init vendor data and starts the VM.
+5. Waits for QEMU Guest Agent, detaches the secret-bearing custom data, and removes its snippet from the host.
+
+If the guest agent does not respond within ten minutes, the helper leaves the snippet in place and prints the exact cleanup command. Do not remove it until first-boot customization has completed.
+
+Open VIS after DNS resolves the configured FQDN:
 
 ```text
-vcf-infrastructure-services-appliance-1.0.3.ova.part-aa
-vcf-infrastructure-services-appliance-1.0.3.ova.part-ab
-vcf-infrastructure-services-appliance-1.0.3.ova.part-ac
-vcf-infrastructure-services-appliance-1.0.3.ova.sha256
-vcf-infrastructure-services-appliance-1.0.3.ova.parts.sha256
+http://vis.vcf.lab/
 ```
 
-Verify the downloaded parts first:
+Port 80 redirects to the management application on port 8080.
+
+## First-boot behavior
+
+The `vis-firstboot.service` unit waits for `cloud-final.service`, validates that the actual guest address matches the requested address, generates a unique application secret, hashes the VIS administrator password into SQLite, removes the plaintext configuration, and starts the VIS UI. All managed supporting services remain disabled until configured in VIS.
+
+Inspect failures from the Proxmox console or SSH:
 
 ```shell
-shasum -a 256 -c vcf-infrastructure-services-appliance-1.0.3.ova.parts.sha256
+sudo systemctl status vis-firstboot.service
+sudo journalctl -u vis-firstboot.service -b
+sudo cloud-init status --long
 ```
 
-Reconstruct the OVA:
+## Resize a service disk
 
-* Linux/macOS
+Resize the appropriate native PVE disk, for example the depot disk:
 
 ```shell
-cat vcf-infrastructure-services-appliance-1.0.3.ova.part-* > vcf-infrastructure-services-appliance-1.0.3.ova
+qm resize <vmid> scsi1 +100G
 ```
 
-* Windows PowerShell
-```shell
-cmd /c 'copy /b vcf-infrastructure-services-appliance-1.0.3.ova.part-a* vcf-infrastructure-services-appliance-1.0.3.ova'
-```
+Then open **Appliance > System Health** in VIS and select **Expand Filesystem** for that partition. The disk mapping is `scsi1` depot, `scsi2` SFTP, `scsi3` registry, `scsi4` DNS, and `scsi5` identity.
 
+## Linked versus full clones
 
-Verify the reconstructed OVA before importing it:
-
-```shell
-shasum -a 256 -c vcf-infrastructure-services-appliance-1.0.3.ova.sha256
-```
-
-The final checksum must pass before deploying the OVA. If it fails, delete the reconstructed OVA, re-download the failed part listed by `shasum`, and repeat the verification.
-
-Release maintainers can create the split files and checksums with:
-
-```shell
-cd output-vmware-iso
-shasum -a 256 vcf-infrastructure-services-appliance-1.0.3.ova > vcf-infrastructure-services-appliance-1.0.3.ova.sha256
-split -b 1900m vcf-infrastructure-services-appliance-1.0.3.ova vcf-infrastructure-services-appliance-1.0.3.ova.part-
-shasum -a 256 vcf-infrastructure-services-appliance-1.0.3.ova.part-* > vcf-infrastructure-services-appliance-1.0.3.ova.parts.sha256
-```
-
-## vCenter Server Deployment
-
-![](images/vis-vcenter-deployment-1.png)
-
-![](images/vis-vcenter-deployment-2.png)
-
-![](images/vis-vcenter-deployment-3.png)
-
-![](images/vis-vcenter-deployment-4.png)
-
-## Standalone ESX Deployment with OVF Tool
-
-For environments without vCenter Server, use the sample OVF Tool script:
-
-Step 1 - Make a local copy of the deployment script
-
-```shell
-cp scripts/deploy_vis_esx.sh scripts/deploy_vis_esx.local.sh
-```
-
-Step 2 - Edit the variables based on your environment
-
-```shell
-OVFTOOL="/Applications/VMware OVF Tool/ovftool"
-VIS_OVA="./output-vmware-iso/vcf-infrastructure-services-appliance-1.0.3.ova"
-
-# ESX deployment target
-ESX_HOST="172.30.0.10"
-ESX_USERNAME="root"
-ESX_PASSWORD="VMware1!"
-VM_NETWORK="VM Network"
-VM_DATASTORE="local-vmfs-datastore-1"
-VM_NAME="vis"
-
-# VIS appliance networking
-VIS_FQDN="vis.vcf.lab"
-VIS_IP="172.30.0.9"
-VIS_NETMASK="24 (255.255.255.0)"
-VIS_GATEWAY="172.30.0.1"
-VIS_DNS_SERVER="192.168.30.29"
-VIS_DNS_DOMAIN="vcf.lab"
-VIS_NTP_SERVER="pool.ntp.org"
-
-# Appliance OS credentials
-VIS_ROOT_PASSWORD="VMware1!"
-
-# Optional root SSH public key. Leave empty to skip.
-VIS_SSH_PUBLIC_KEY_FILE=""
-
-# VIS web application administrator credentials.
-# This is separate from the appliance OS/root credential.
-VIS_ADMIN_USERNAME="admin"
-VIS_ADMIN_PASSWORD="VMware1!"
-
-# Advanced: Docker container address pool used by VIS services such as Harbor.
-# Change this if 10.10.0.0/16 overlaps with your lab network.
-VIS_POD_CIDR_NETWORK="10.10.0.0/16"
-
-# Enable verbose first-boot logging. Debug logs may include credentials.
-VIS_DEBUG="false"
-```
-
-Step 3 - Run the script
-
-```shell
-./scripts/deploy_vis_esx.local.sh
-```
-
-The script deploys directly to a standalone ESX host and passes the required `guestinfo.*` OVF properties that VIS consumes during first boot customization.
-
-All VIS services are disabled by default. Users will need to configure and enable only the services they require. Please see the [Usage](usage.html) page for some examples.
+`FULL_CLONE=true` is the default and gives the appliance independent storage. Set `FULL_CLONE=false` only when the selected Proxmox storage and backup design support linked clones and the template will remain immutable.

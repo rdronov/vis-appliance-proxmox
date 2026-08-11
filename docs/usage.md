@@ -6,13 +6,13 @@ Examples of using VIS services with VMware Cloud Foundation deployments and work
 
 ## Login to VIS
 
-After the VIS OVA has been successfully deployed and powered on, the VIS UI interface will be available at:
+After the Proxmox template has been cloned and first-boot customization completes, the VIS UI is available at:
 
 ```text
 http://<VIS-IP-or-FQDN>
 ```
 
-The username will be what you had defined as `VIS Admin Username` during OVF property configuration along with the credentials you had specified.
+Use the `VIS_ADMIN_USERNAME` and `VIS_ADMIN_PASSWORD` values from the private Proxmox deployment configuration.
 
 ![](images/usage-login.png)
 
@@ -38,7 +38,7 @@ You can view the compute and storage resource utilization for VIS.
 
 ![](images/vis-system-health.png)
 
-If you need to expand a specific disk partition such as the software depot, first perform the operation within vSphere and then navigate back here to expand the filesystem.
+If you need to expand a partition such as the software depot, first resize its native virtual disk in Proxmox VE and then return here to expand the filesystem.
 
 ![](images/vis-disk-expand.png)
 
@@ -156,7 +156,7 @@ If you are using the Docker Desktop client UI, you can simply append the Harbor 
 You should now be able to log in to one of your Harbor projects using the Harbor endpoint/port along with credentials:
 
 ```
-docker login vis.vcf.lab:9443/demo -u admin -p VMware1!
+docker login vis.vcf.lab:9443/demo -u admin -p '<your-harbor-password>'
 ```
 
 Then you can push an image that has been tagged for your Harbor registry like the following:

@@ -1,135 +1,91 @@
 # Build
 
-VIS currently uses Packer's `vmware-iso` workflow against a standalone ESX host. The build exports an OVA into `output-vmware-iso/`.
+VIS is built natively on Proxmox VE with Packer's `proxmox-iso` builder. The build starts a new KVM VM from the Ubuntu Server ISO, creates all six service disks on Proxmox storage, provisions the appliance, seals it, and converts VMID into a Proxmox template.
 
-## Table of Contents
-
-- [Repository Layout](#repository-layout)
-- [Requirements](#requirements)
-- [Build Artifacts](#build-artifacts)
-- [Signed Offline Update Releases](#signed-offline-update-releases)
-- [Configure Builder Settings](#configure-builder-settings)
-
-## Repository Layout
-
-| Path | Purpose |
-| --- | --- |
-| `vis/` | Flask web application and VIS service control plane |
-| `vis.json` | Packer `vmware-iso` template |
-| `vis-builder.json` | Local ESX builder settings |
-| `vis-version.json` | Appliance version, ISO path, disk sizes, and guest defaults |
-| `artifacts/` | User-supplied build artifacts such as the Ubuntu ISO and optional VCFDT archive |
-| `files/` | Appliance first-boot/setup payloads copied into the VM |
-| `scripts/` | Packer provisioning scripts |
-| `http/` | Ubuntu autoinstall NoCloud seed data |
-| `tests/` | Unit tests for the VIS control plane |
-| `prototype/` | Static HTML prototypes used during UI design |
+No VMware image is imported or converted.
 
 ## Requirements
 
-### Build Workstation
+### Build workstation
 
-- Packer with the VMware builder plugin.
-- `ovftool`.
-- Network access to the ESX build host.
-- SSH access to the ESX build host.
-- Enough local disk space for the Ubuntu ISO, Packer cache, and exported OVA.
+- Packer 1.11 or newer.
+- Network access to the Proxmox API on TCP 8006.
+- TCP 8000-9000 from the temporary build VM to the workstation for Ubuntu autoinstall seed data.
+- Enough time for Ubuntu packages, Harbor images, and Keycloak artifacts to download.
 
-HashiCorp documents that the VMware builder communicates with ESX over SSH and, for vSphere Hypervisor/ESX usage, may require `GuestIPHack` and firewall allowances for the remote build workflow. See the official [Packer VMware builder documentation](https://developer.hashicorp.com/packer/integrations/hashicorp/vmware/latest/components/builder/vmx).
+`packer init` installs HashiCorp's Proxmox plugin declared in `packer/vis.pkr.hcl`.
 
-### Standalone ESX Build Host
+### Proxmox VE
 
-On the standalone ESX host:
+- A node with KVM enabled.
+- An ISO-capable storage containing the configured Ubuntu Server ISO.
+- An image-capable storage with enough space for the six template disks.
+- A bridge that gives the temporary build VM DHCP and internet access.
+- A dedicated API token with access to create, configure, start, stop, and convert VMs and allocate space on the selected storage.
 
-1. Enable SSH.
-2. Ensure the build workstation can reach the ESX management IP.
-3. Ensure the target datastore has enough free space.
-4. Ensure the target port group has network access for the temporary build VM.
-5. Enable the Packer ESX guest IP helper:
+The token identity uses `user@realm!token-id`, for example `packer@pve!vis-builder`. Grant only the required scope. Typical privileges include VM allocation/audit/power/configuration, datastore audit/allocation, and bridge use; the exact ACL path depends on your pool, node, storage, and SDN design.
 
-```shell
-esxcli system settings advanced set -o /Net/GuestIPHack -i 1
-```
+## Disk layout
 
-## Build Artifacts
+Packer creates these disks directly on `proxmox_storage`:
 
-Place user-supplied build artifacts in `artifacts/`.
+| Proxmox device | Mount | Default size |
+| --- | --- | ---: |
+| `scsi0` | OS, `/var`, and `/opt/vis/state` LVM | 40 GB |
+| `scsi1` | `/opt/vis/data/depot` | 200 GB |
+| `scsi2` | `/opt/vis/data/sftp` | 15 GB |
+| `scsi3` | `/opt/vis/data/registry` | 60 GB |
+| `scsi4` | `/opt/vis/data/dns` | 2 GB |
+| `scsi5` | `/opt/vis/data/identity` | 2 GB |
 
-Required:
+They use raw format, `virtio-scsi-single`, per-disk I/O threads, discard, and SSD emulation. The backing implementation remains native to the selected PVE storage, such as LVM-thin, ZFS, Ceph RBD, or directory storage.
 
-```text
-artifacts/ubuntu-26.04-live-server-amd64.iso
-```
+## Configure the build
 
-Optional:
-
-```text
-artifacts/vcf-download-tool-*.tar.gz
-```
-
-VCFDT is an optional manual Broadcom download. The default public-style build does **not** bake VCFDT into the appliance. After deployment, install it from the Software Depot page by dragging `vcf-download-tool-*.tar.gz` into the VCF Download Tool panel.
-
-For private lab builds, you can still preinstall VCFDT by placing `artifacts/vcf-download-tool-*.tar.gz` in `artifacts/` and setting:
-
-```json
-"install_vcf_download_tool": "true"
-```
-
-When enabled, Packer installs VCFDT under `/usr/local/lib/vcf-download-tool` and links `vcf-download-tool` into `/usr/local/bin`.
-
-`files/` is reserved for appliance setup payloads. Do not place large user downloads there.
-
-## Signed Offline Update Releases
-
-Offline VIS updates use a signed SHA256 manifest so disconnected appliances can reject tampered or corrupted release archives. The private signing key must never be committed to the repository or copied into the appliance. Only the public key in `files/vis-update-signing.pub` is shipped with VIS.
-
-To create an offline update bundle from a release checkout:
+Copy the ignored sample file:
 
 ```shell
-VERSION=$(jq -r .version vis-version.json)
-BUNDLE="vis-update-${VERSION}.zip"
-
-git archive --format=zip --output="${BUNDLE}" --prefix="vis-update-${VERSION}/" HEAD
-shasum -a 256 "${BUNDLE}" > "${BUNDLE}.sha256"
-openssl pkeyutl -sign -rawin   -inkey ~/.vis-signing/vis-update-signing-private.pem   -in "${BUNDLE}.sha256"   -out "${BUNDLE}.sha256.sig"
+cp packer/proxmox.pkrvars.hcl.example packer/proxmox.pkrvars.hcl
+chmod 600 packer/proxmox.pkrvars.hcl
 ```
 
-Publish all three files in the GitHub release:
+Edit the PVE endpoint, token, node, storage, bridge, ISO location, and a cluster-unique template VMID. Never commit this file.
 
-```text
-vis-update-<version>.zip
-vis-update-<version>.zip.sha256
-vis-update-<version>.zip.sha256.sig
-```
-
-The appliance verifies the `.sha256.sig` file with `/etc/vis/update-signing.pub`, verifies the ZIP hash from the signed SHA256 file, rejects unsafe ZIP paths or unsupported file types, and then applies the staged source with `/usr/local/sbin/vis-apply-update`.
-
-## Configure Builder Settings
-
-Edit `vis-builder.json` for your ESX build host:
-
-```json
-{
-  "builder_host": "192.168.30.62",
-  "builder_host_username": "root",
-  "builder_host_password": "VMware1!",
-  "builder_host_datastore": "datastore1",
-  "builder_host_portgroup": "VM Network"
-}
-```
-
-Edit `vis-version.json` if you need to adjust appliance versioning, ISO checksum, disk sizes, CPU, memory, guest defaults, or the Docker pod CIDR.
-
-Validate the template:
+Ubuntu autoinstall needs a SHA-512 crypt hash matching the temporary Packer SSH password. Generate it locally:
 
 ```shell
-packer validate -var-file=vis-builder.json -var-file=vis-version.json vis.json
+openssl passwd -6
 ```
 
-Build the appliance:
+Put the plaintext value in `guest_password` and the generated `$6$...` value in `guest_password_hash`. The account is locked and its authorized keys are removed before template creation.
+
+The ISO must already be visible to Proxmox. The default reference is:
+
+```hcl
+iso_file = "local:iso/ubuntu-26.04-live-server-amd64.iso"
+```
+
+The checksum is verified by the Packer builder. Update both the ISO reference and checksum when using a different release.
+
+## Build
 
 ```shell
 ./build.sh
 ```
 
-The OVA is packaged with uncompressed stream-optimized VMDKs for broad vSphere UI import compatibility; release files can be split afterward for GitHub distribution.
+The script initializes the plugin, formats and validates the HCL, and runs the build. On success, `template_vmid` is a Proxmox template whose name includes the VIS version.
+
+Packer does not emit a local disk image, VMDK, OVF, or OVA. The template disks remain on the configured Proxmox storage.
+
+## Template sealing
+
+Before Packer powers off the VM, `scripts/vis-cleanup.sh`:
+
+- Locks the temporary build password and removes authorized keys.
+- Removes SSH host keys and resets `/etc/machine-id`.
+- Runs `cloud-init clean --logs --seed`.
+- Removes VIS database state and the application secret.
+- Clears package caches and transient logs.
+- Uses TRIM instead of zero-filling thin-provisioned service disks.
+
+Each clone therefore gets a fresh Linux identity, SSH host keys, VIS database, administrator password hash, and Flask application secret.

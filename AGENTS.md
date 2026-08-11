@@ -9,7 +9,7 @@ Read this before adding or changing VIS features. VIS is an appliance control pl
 - Persistent application state is SQLite through `vis/store.py`.
 - Service defaults are seeded from `vis/definitions.py`.
 - Service runtime behavior belongs in adapters in `vis/manager.py`.
-- Packer/appliance setup is under `scripts/` and `files/`.
+- The Proxmox Packer template is `packer/vis.pkr.hcl`; appliance setup is under `scripts/` and `files/`.
 
 ## Service Model
 
@@ -73,6 +73,8 @@ New services must be added to:
 ## Packer And Appliance Setup
 
 - Packer must stay in sync with live-system features.
+- VIS is built directly with `proxmox-iso`; do not add VMDK conversion, OVF/OVA packaging, VMware guestinfo, or `open-vm-tools` paths.
+- Clone customization must use Proxmox Cloud-Init and QEMU Guest Agent, with no committed or working default credentials.
 - If a feature needs packages, Python dependencies, directories, systemd defaults, or first-boot behavior, update the Packer scripts too.
 - App Python dependencies belong in `vis/requirements.txt`; `scripts/vis-services.sh` installs them into `/opt/vis/app/venv`.
 - OS packages belong in `scripts/vis-settings.sh`.
@@ -80,7 +82,7 @@ New services must be added to:
 - Appliance update behavior belongs in `scripts/vis-update.sh`, `scripts/vis-offline-update.sh`, and `scripts/vis-apply-update.sh`; keep those hooks current when new files, units, or dependency steps must be applied to already deployed appliances.
 - Offline update ZIPs must verify a signed SHA256 manifest with the VIS release public key before extraction or apply.
 - Never commit private release signing keys. Only public verification keys may live in the repository.
-- Do not rebuild the appliance unless explicitly requested.
+- Do not rebuild the appliance unless explicitly requested and a Proxmox target is available.
 
 ## Live Appliance Patching
 
@@ -103,7 +105,7 @@ New services must be added to:
 - Service credentials should be configured by the user before enablement.
 - Sensitive values should be masked in the UI with an eye toggle and copy button where useful.
 - Config export/import may include secrets; warning text must remain clear.
-- Do not commit SSH keys, ISO files, VCF Download Tool archives, generated OVAs, VMDKs, split artifacts, or temporary verification files.
+- Do not commit SSH keys, ISO files, VCF Download Tool archives, private Packer variable files, deployment environment files, or temporary verification files.
 
 ## Testing
 
@@ -129,5 +131,5 @@ python3 -m unittest tests.test_services tests.test_packer_config
 - Regenerate static docs with `python3 docs/render_docs.py` when Markdown docs change.
 - `docs/*.html` files are generated but intentionally committed because GitHub Pages is published from the `/docs` folder.
 - Keep `docs/index.html`, generated docs HTML, `docs/docs.css`, and `docs/images/` publishable.
-- Keep local-only artifacts such as `prototype/`, `output-vmware-iso/`, ISOs, OVAs, VMDKs, split OVA parts, VCF Download Tool archives, and `.tmp*` files out of commits.
+- Keep local-only artifacts such as `prototype/`, ISOs, Packer variable files, deployment environment files, VCF Download Tool archives, and `.tmp*` files out of commits.
 - Keep this file updated when a repeated implementation rule appears during development.
