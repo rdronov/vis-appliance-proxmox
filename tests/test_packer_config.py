@@ -1,4 +1,8 @@
+import base64
 import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -6,284 +10,164 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class PackerOptionalArtifactTest(unittest.TestCase):
-    def setUp(self):
-        with open(ROOT / "vis.json", "r", encoding="utf-8") as handle:
-            self.config = json.load(handle)
+class ProxmoxPackerTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.packer = (ROOT / "packer" / "vis.pkr.hcl").read_text(encoding="utf-8")
+        cls.deploy = (ROOT / "scripts" / "deploy_vis_proxmox.sh").read_text(encoding="utf-8")
 
-    def test_packer_stages_optional_vcf_download_tool_archive(self):
-        provisioners = self.config["provisioners"]
-        local_stage = provisioners[0]
+    def test_builder_is_proxmox_native(self):
+        self.assertIn('source "proxmox-iso" "vis"', self.packer)
+        self.assertIn('source  = "github.com/hashicorp/proxmox"', self.packer)
+        self.assertIn('sources = ["source.proxmox-iso.vis"]', self.packer)
+        for vmware_term in ("vmware-iso", "ovftool", "output-vmware-iso", "vmdk", "open-vm-tools"):
+            self.assertNotIn(vmware_term, self.packer.lower())
 
-        self.assertEqual("false", self.config["variables"]["install_vcf_download_tool"])
-        self.assertEqual("shell-local", local_stage["type"])
-        self.assertIn("mkdir -p http/optional-artifacts", local_stage["inline"])
-        self.assertTrue(
-            any(
-                "vcf-download-tool-*" in command
-                and "artifacts" in command
-                and "vcf-download-tool-local.tar.gz" in command
-                and "install_vcf_download_tool" in command
-                for command in local_stage["inline"]
-            )
-        )
+    def test_builder_creates_a_pve_template_with_cloud_init_and_agent(self):
+        self.assertIn("template_name", self.packer)
+        self.assertIn("cloud_init                          = true", self.packer)
+        self.assertIn("cloud_init_storage_pool             = var.proxmox_storage", self.packer)
+        self.assertIn("qemu_agent      = true", self.packer)
+        self.assertNotIn("skip_convert_to_template", self.packer)
 
-        shell_inline = [
-            command
-            for provisioner in provisioners
-            if provisioner["type"] == "shell"
-            for command in provisioner.get("inline", [])
-        ]
-        downloader = next(
-            provisioner
-            for provisioner in provisioners
-            if provisioner["type"] == "shell"
-            and any("PACKER_HTTP_ADDR" in command for command in provisioner.get("inline", []))
-        )
-        self.assertIn("mkdir -p /tmp/vis-optional-files", shell_inline)
-        self.assertNotIn("execute_command", downloader)
-        self.assertTrue(
-            any(
-                "curl -fsS -o /tmp/vis-optional-files/vcf-download-tool-local.tar.gz" in command
-                and "optional-artifacts/vcf-download-tool-local.tar.gz" in command
-                for command in shell_inline
-            )
-        )
+    def test_builder_uses_six_direct_proxmox_disks(self):
+        self.assertEqual(6, self.packer.count('  disks {'))
+        self.assertEqual(6, self.packer.count('    format       = "raw"'))
+        self.assertIn('scsi_controller = "virtio-scsi-single"', self.packer)
+        for size in ("40G", "200G", "15G", "60G", "2G"):
+            self.assertIn(f'default = "{size}"', self.packer)
 
-    def test_packer_runs_vcf_download_tool_installer(self):
-        installer = next(
-            provisioner
-            for provisioner in self.config["provisioners"]
-            if "scripts/vis-download-tool.sh" in provisioner.get("scripts", [])
-        )
+    def test_autoinstall_password_is_injected_not_committed(self):
+        user_data = (ROOT / "http" / "user-data").read_text(encoding="utf-8")
+        example = (ROOT / "packer" / "proxmox.pkrvars.hcl.example").read_text(encoding="utf-8")
+        self.assertIn('password: "__VIS_BUILD_PASSWORD_HASH__"', user_data)
+        self.assertIn('"__VIS_BUILD_PASSWORD_HASH__"', self.packer)
+        self.assertIn("guest_password_hash", example)
+        self.assertNotIn("VMware1!", user_data)
+        self.assertNotIn("VMware1!", example)
 
-        self.assertIn("VIS_INSTALL_VCF_DOWNLOAD_TOOL={{ user `install_vcf_download_tool` }}", installer["environment_vars"])
-
-    def test_vcf_download_tool_installer_is_optional_and_uses_standard_path(self):
-        script = (ROOT / "scripts" / "vis-download-tool.sh").read_text(encoding="utf-8")
-
-        self.assertIn("VIS_INSTALL_VCF_DOWNLOAD_TOOL", script)
-        self.assertIn("VCF Download Tool build-time install is disabled", script)
-        self.assertIn("vcf-download-tool-*.tar.gz", script)
-        self.assertIn("valid_archives", script)
-        self.assertIn("VCF Download Tool archive was not provided; skipping.", script)
-        self.assertIn("/root/${archive_name}", script)
-        self.assertIn('if [ "${archive}" != "/root/${archive_name}" ]; then', script)
-        self.assertIn("/usr/local/lib/vcf-download-tool", script)
-        self.assertIn("/usr/local/bin", script)
-        self.assertIn("ln -sfn", script)
-        self.assertIn("/etc/profile.d/vis-download-tool.sh", script)
-        self.assertIn("obtu.telemetry.config=ENABLE", script)
-        self.assertIn("conf/telemetry/telemetry.flag", script)
-        self.assertIn("vcf-download-tool configuration generate --software-depot-id", script)
-        self.assertIn("--force", script)
-        self.assertIn("/opt/vis/config/depot/vcfdt-system-id", script)
-
-    def test_iso_is_loaded_from_user_artifacts_directory(self):
-        with open(ROOT / "vis-version.json", "r", encoding="utf-8") as handle:
-            version_config = json.load(handle)
-
-        self.assertEqual("artifacts/ubuntu-26.04-live-server-amd64.iso", version_config["iso_url"])
-
-    def test_vmx_annotation_uses_vmx_safe_newline_encoding(self):
-        annotation = self.config["builders"][0]["vmx_data"]["annotation"]
-
-        self.assertIn("VCF Infrastructure Services Appliance", annotation)
-        self.assertIn("|0AVersion:", annotation)
-        self.assertNotIn("\n", annotation)
-
-    def test_packer_exposes_keycloak_image_bom_variable(self):
-        self.assertEqual("quay.io/keycloak/keycloak:26.3", self.config["variables"]["keycloak_image"])
-        harbor_provisioner = next(
-            provisioner
-            for provisioner in self.config["provisioners"]
-            if "scripts/vis-harbor.sh" in provisioner.get("scripts", [])
-        )
-
-        self.assertIn("VIS_KEYCLOAK_IMAGE={{ user `keycloak_image` }}", harbor_provisioner["environment_vars"])
-        script = (ROOT / "scripts" / "vis-harbor.sh").read_text(encoding="utf-8")
-        self.assertIn("docker pull", script)
-        self.assertIn("Keycloak image pre-pull skipped", script)
-
-    def test_packer_prepulls_harbor_images_without_autostarting_service(self):
-        script = (ROOT / "scripts" / "vis-harbor.sh").read_text(encoding="utf-8")
-
-        self.assertIn("staging installer and pre-pulling images", script)
-        self.assertIn("STAGED_HARBOR_ADMIN_PASSWORD", script)
-        self.assertIn("sudo ./prepare", script)
-        self.assertIn('docker compose -f "${HARBOR_HOME}/docker-compose.yml" pull', script)
-        self.assertIn('HARBOR_AUTOSTART="false"', script)
-        self.assertIn('sudo systemctl disable vis-harbor.service || true', script)
-
-    def test_packer_places_containerd_storage_on_registry_disk(self):
-        script = (ROOT / "scripts" / "vis-harbor.sh").read_text(encoding="utf-8")
-
-        self.assertIn('"${REGISTRY_ROOT}/containerd"', script)
-        self.assertIn('"containerd-snapshotter": false', script)
-        self.assertIn("root = \"${REGISTRY_ROOT}/containerd\"", script)
-        self.assertIn('state = "/run/containerd"', script)
-        self.assertIn("/etc/systemd/system/containerd.service.d/vis-storage.conf", script)
-        self.assertIn("/etc/systemd/system/docker.service.d/vis-storage.conf", script)
-        self.assertIn("RequiresMountsFor=${REGISTRY_ROOT}", script)
-        self.assertIn("systemctl stop docker.socket", script)
-        self.assertIn("rm -rf /var/lib/docker", script)
-        self.assertIn("rm -rf /var/lib/containerd", script)
-
-    def test_ovf_defaults_use_public_safe_lab_values(self):
-        template = (ROOT / "manual" / "vis.xml.template").read_text(encoding="utf-8")
-
-        self.assertEqual("vis.vcf.lab", self.config["variables"]["vis_appliance_fqdn"])
-        self.assertEqual("172.30.0.9", self.config["variables"]["vis_appliance_ip"])
-        self.assertIn('ovf:key="guestinfo.hostname" ovf:type="string" ovf:userConfigurable="true" ovf:value="vis.vcf.lab"', template)
-        self.assertIn('ovf:key="guestinfo.ipaddress" ovf:type="string" ovf:userConfigurable="true" ovf:value="172.30.0.9"', template)
-        self.assertIn('ovf:key="guestinfo.gateway" ovf:type="string" ovf:userConfigurable="true" ovf:value="172.30.0.1"', template)
-        self.assertIn('ovf:key="guestinfo.dns" ovf:type="string" ovf:userConfigurable="true" ovf:value="192.168.30.29"', template)
-        self.assertIn('ovf:key="guestinfo.domain" ovf:type="string" ovf:userConfigurable="true" ovf:value="vcf.lab"', template)
-        self.assertIn('ovf:key="guestinfo.ssh_public_key" ovf:type="string" ovf:userConfigurable="true" ovf:value=""', template)
-        self.assertNotIn("ssh-rsa ", template)
-        self.assertNotIn("ssh-ed25519 ", template)
-
-    def test_service_disk_sizes_match_expected_layout(self):
-        with open(ROOT / "vis-version.json", "r", encoding="utf-8") as handle:
-            version_config = json.load(handle)
-
-        expected = {
-            "disk_size": "40960",
-            "depot_disk_size": "204800",
-            "sftp_disk_size": "15360",
-            "registry_disk_size": "61440",
-            "dns_disk_size": "2048",
-            "identity_disk_size": "2048",
-        }
-        for key, value in expected.items():
-            self.assertEqual(value, self.config["variables"][key])
-            self.assertEqual(value, version_config[key])
-
-    def test_packer_installs_dns_ldap_and_time_backends_disabled_by_default(self):
-        script = (ROOT / "scripts" / "vis-settings.sh").read_text(encoding="utf-8")
-        requirements = (ROOT / "vis" / "requirements.txt").read_text(encoding="utf-8")
-
-        self.assertIn("git", script)
-        self.assertIn("unbound", script)
-        self.assertIn("slapd", script)
-        self.assertIn("ldap-utils", script)
-        self.assertIn("chrony", script)
-        self.assertIn("dnsmasq-base", script)
-        self.assertIn("linuxptp", script)
-        self.assertIn("PyKMIP", requirements)
-        self.assertIn("systemctl disable --now unbound", script)
-        self.assertIn("systemctl disable --now slapd", script)
-        self.assertIn("systemctl disable --now chrony", script)
-        self.assertIn("systemctl disable --now vis-kms", script)
-
-    def test_packer_installs_update_helpers(self):
-        services_script = (ROOT / "scripts" / "vis-services.sh").read_text(encoding="utf-8")
-        update_script = (ROOT / "scripts" / "vis-update.sh").read_text(encoding="utf-8")
-        apply_script = (ROOT / "scripts" / "vis-apply-update.sh").read_text(encoding="utf-8")
-        offline_script = (ROOT / "scripts" / "vis-offline-update.sh").read_text(encoding="utf-8")
-        signing_key = (ROOT / "files" / "vis-update-signing.pub").read_text(encoding="utf-8")
-        file_provisioners = [
-            provisioner
-            for provisioner in self.config["provisioners"]
-            if provisioner["type"] == "file"
-        ]
-
-        self.assertTrue(
-            any(
-                provisioner["source"] == "scripts/vis-update.sh"
-                and provisioner["destination"] == "/tmp/vis-update.sh"
-                for provisioner in file_provisioners
-            )
-        )
-        self.assertTrue(
-            any(
-                provisioner["source"] == "scripts/vis-apply-update.sh"
-                and provisioner["destination"] == "/tmp/vis-apply-update.sh"
-                for provisioner in file_provisioners
-            )
-        )
-        self.assertTrue(
-            any(
-                provisioner["source"] == "scripts/vis-offline-update.sh"
-                and provisioner["destination"] == "/tmp/vis-offline-update.sh"
-                for provisioner in file_provisioners
-            )
-        )
-        self.assertTrue(
-            any(
-                provisioner["source"] == "files/vis-update-signing.pub"
-                and provisioner["destination"] == "/tmp/vis-update-signing.pub"
-                for provisioner in file_provisioners
-            )
-        )
-        self.assertIn("/usr/local/sbin/vis-update", services_script)
-        self.assertIn("/usr/local/sbin/vis-apply-update", services_script)
-        self.assertIn("/usr/local/sbin/vis-offline-update", services_script)
-        self.assertIn("/etc/vis/update-signing.pub", services_script)
-        self.assertIn("https://github.com/lamw/vcf-infrastructure-service-appliance.git", update_script)
-        self.assertIn("git clone", update_script)
-        self.assertIn("scripts/vis-apply-update.sh", update_script)
-        self.assertNotIn("install --upgrade pip", apply_script)
-        self.assertIn("VIS_UPDATE_OFFLINE", apply_script)
-        self.assertIn('pip" install --no-index -r', apply_script)
-        self.assertIn('pip" install -r', apply_script)
-        self.assertIn("systemctl restart vis-web.service", apply_script)
-        self.assertIn("vis-offline-update", apply_script)
-        self.assertIn("openssl pkeyutl -verify", offline_script)
-        self.assertIn("Archive SHA256 verified", offline_script)
-        self.assertIn("unsafe path", offline_script)
-        self.assertIn("/usr/local/sbin/vis-apply-update", offline_script)
-        self.assertIn("VIS_UPDATE_OFFLINE=true", offline_script)
-        self.assertIn("BEGIN PUBLIC KEY", signing_key)
-
-    def test_packer_creates_service_data_directories(self):
-        settings_script = (ROOT / "scripts" / "vis-settings.sh").read_text(encoding="utf-8")
-        firstboot_script = (ROOT / "files" / "setup-01-os.sh").read_text(encoding="utf-8")
-
-        for path in (
+    def test_autoinstall_partitions_all_service_disks(self):
+        user_data = (ROOT / "http" / "user-data").read_text(encoding="utf-8")
+        self.assertIn("- qemu-guest-agent", user_data)
+        self.assertIn("systemctl enable qemu-guest-agent", user_data)
+        for device in ("/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"):
+            self.assertIn(f"path: {device}", user_data)
+        for mount in (
+            "/opt/vis/state",
             "/opt/vis/data/depot",
-            "/opt/vis/data/sftp/backup",
+            "/opt/vis/data/sftp",
             "/opt/vis/data/registry",
             "/opt/vis/data/dns",
             "/opt/vis/data/identity",
-            "/opt/vis/data/time",
-            "/opt/vis/data/dhcp",
-            "/opt/vis/data/kms",
         ):
-            self.assertIn(path, settings_script)
-            self.assertIn(path, firstboot_script)
+            self.assertIn(f"path: {mount}", user_data)
 
-    def test_packer_installs_default_port_80_redirect(self):
-        script = (ROOT / "scripts" / "vis-services.sh").read_text(encoding="utf-8")
-        unit = (ROOT / "files" / "vis-redirect.service").read_text(encoding="utf-8")
-        file_provisioners = [
-            provisioner
-            for provisioner in self.config["provisioners"]
-            if provisioner["type"] == "file"
-        ]
+    def test_optional_vcf_download_tool_is_staged_after_install(self):
+        self.assertIn("vcf-download-tool-*", self.packer)
+        self.assertIn('source      = "http/optional-artifacts"', self.packer)
+        self.assertIn("VIS_OPTIONAL_ARTIFACT_DIR=/tmp/optional-artifacts", self.packer)
+        self.assertIn("VIS_INSTALL_VCF_DOWNLOAD_TOOL=${var.install_vcf_download_tool}", self.packer)
 
-        self.assertTrue(
-            any(
-                provisioner["source"] == "files/vis-redirect.service"
-                and provisioner["destination"] == "/tmp/vis-redirect.service"
-                for provisioner in file_provisioners
-            )
+    def test_template_is_sealed_for_safe_cloning(self):
+        cleanup = (ROOT / "scripts" / "vis-cleanup.sh").read_text(encoding="utf-8")
+        for expected in (
+            "passwd -l visadmin",
+            "/etc/ssh/ssh_host_*",
+            "truncate -s 0 /etc/machine-id",
+            "cloud-init clean --logs --seed",
+            "/opt/vis/state/vis.db",
+            "/opt/vis/config/app-secret",
+            "fstrim -av",
+        ):
+            self.assertIn(expected, cleanup)
+        self.assertNotIn("dd if=/dev/zero", cleanup)
+
+    def test_firstboot_consumes_cloud_init_not_ovf_guestinfo(self):
+        firstboot = (ROOT / "scripts" / "vis-firstboot.sh").read_text(encoding="utf-8")
+        setup = (ROOT / "files" / "setup.sh").read_text(encoding="utf-8")
+        self.assertIn("After=cloud-final.service", firstboot)
+        self.assertIn("qemu-guest-agent.service", firstboot)
+        self.assertIn("/etc/vis/firstboot.json", setup)
+        self.assertIn("/var/lib/vis/firstboot.complete", setup)
+        self.assertNotIn("guestinfo", firstboot.lower() + setup.lower())
+        self.assertNotIn("ovf", firstboot.lower() + setup.lower())
+
+    def test_firstboot_seeds_admin_then_drops_plaintext_password(self):
+        setup = (ROOT / "files" / "setup-03-vis.sh").read_text(encoding="utf-8")
+        self.assertIn("generate_password_hash", setup)
+        self.assertIn("ensure_initial_admin", setup)
+        self.assertIn("Environment=VIS_ADMIN_PASSWORD=", setup)
+        self.assertNotIn("Environment=VIS_ADMIN_PASSWORD=${VIS_ADMIN_PASSWORD}", setup)
+        self.assertIn("unset VIS_ADMIN_PASSWORD", setup)
+
+    def test_key_only_os_access_keeps_sudo_usable(self):
+        setup = (ROOT / "files" / "setup-01-os.sh").read_text(encoding="utf-8")
+        self.assertIn("passwd -l visadmin", setup)
+        self.assertIn("90-visadmin-cloud", setup)
+        self.assertIn("visadmin ALL=(ALL) NOPASSWD: ALL", setup)
+
+    def test_guest_packages_are_for_kvm(self):
+        settings = (ROOT / "scripts" / "vis-settings.sh").read_text(encoding="utf-8")
+        self.assertIn("qemu-guest-agent", settings)
+        self.assertNotIn("open-vm-tools", settings)
+        for package in ("unbound", "slapd", "chrony", "dnsmasq-base", "linuxptp"):
+            self.assertIn(package, settings)
+
+    def test_deploy_script_clones_and_customizes_template(self):
+        for expected in (
+            'qm "${CLONE_ARGS[@]}"',
+            "--ipconfig0",
+            "--nameserver",
+            "--searchdomain",
+            "--cicustom",
+            "qm start",
+            "qm agent",
+            "--delete cicustom",
+        ):
+            self.assertIn(expected, self.deploy)
+        self.assertNotIn("qm importdisk", self.deploy)
+        self.assertNotIn("qemu-img", self.deploy)
+
+    def test_deploy_script_has_no_default_credentials(self):
+        example = (ROOT / "deploy" / "proxmox.env.example").read_text(encoding="utf-8")
+        renderer = (ROOT / "scripts" / "render_proxmox_vendor.py").read_text(encoding="utf-8")
+        self.assertIn("VIS_ADMIN_PASSWORD=", example)
+        self.assertIn("VIS_OS_PASSWORD=", example)
+        self.assertNotIn("VMware1!", example)
+        self.assertIn("VIS_ADMIN_PASSWORD must contain at least 12 characters", renderer)
+
+    def test_vendor_renderer_validates_and_encodes_firstboot_data(self):
+        env = os.environ.copy()
+        env.update(
+            VIS_FQDN="vis.vcf.lab",
+            VIS_IP_CIDR="172.30.0.9/24",
+            VIS_GATEWAY="172.30.0.1",
+            VIS_DNS_SERVERS="192.168.30.29 1.1.1.1",
+            VIS_SEARCH_DOMAIN="vcf.lab",
+            VIS_NTP_SERVER="pool.ntp.org",
+            VIS_ADMIN_USERNAME="admin",
+            VIS_ADMIN_PASSWORD="CorrectHorseBatteryStaple",
+            VIS_POD_CIDR_NETWORK="10.10.0.0/16",
+            VIS_OS_PASSWORD_ENABLED="false",
         )
-        self.assertIn("/tmp/vis-redirect.service", script)
-        self.assertIn("/etc/systemd/system/vis-redirect.service", script)
-        self.assertIn("systemctl enable vis-redirect.service", script)
-        self.assertIn("VIS_REDIRECT_PORT=80", unit)
-        self.assertIn("VIS_TARGET_PORT=8080", unit)
-        self.assertIn("python -m vis.redirect", unit)
-
-    def test_firstboot_removes_installer_dhcp_netplan_before_static_network(self):
-        script = (ROOT / "files" / "setup-02-network.sh").read_text(encoding="utf-8")
-
-        self.assertIn("rm -f /etc/netplan/00-installer-config.yaml", script)
-        self.assertLess(
-            script.index("rm -f /etc/netplan/00-installer-config.yaml"),
-            script.index("cat > /etc/netplan/99-vis-appliance.yaml"),
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "render_proxmox_vendor.py")],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
         )
+        payload = json.loads(base64.b64decode(result.stdout.strip()).decode())
+        self.assertEqual("vis.vcf.lab", payload["fqdn"])
+        self.assertEqual("172.30.0.9", payload["ip_address"])
+        self.assertEqual(["192.168.30.29", "1.1.1.1"], payload["dns_servers"])
+        self.assertFalse(payload["os_password_enabled"])
+
+    def test_packer_installs_update_helpers(self):
+        services = (ROOT / "scripts" / "vis-services.sh").read_text(encoding="utf-8")
+        for helper in ("vis-update", "vis-apply-update", "vis-offline-update"):
+            self.assertIn(f"/usr/local/sbin/{helper}", services)
+            self.assertIn(f"scripts/{helper}.sh", self.packer)
 
 
 if __name__ == "__main__":

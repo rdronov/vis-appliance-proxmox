@@ -3066,7 +3066,7 @@ def _read_meminfo():
     return values
 
 
-def _storage_health(service_id, disk_label, name, mount, vmdk_capacity_gib, color):
+def _storage_health(service_id, disk_label, name, mount, disk_capacity_gib, color):
     try:
         usage = shutil.disk_usage(mount)
         total = usage.total
@@ -3090,16 +3090,16 @@ def _storage_health(service_id, disk_label, name, mount, vmdk_capacity_gib, colo
         status = "Missing"
         status_class = "bad"
     detected_capacity_bytes = _mounted_disk_capacity_bytes(mount)
-    capacity_bytes = detected_capacity_bytes or int(vmdk_capacity_gib * 1024 * 1024 * 1024)
-    capacity_gib = round(capacity_bytes / (1024 * 1024 * 1024), 1) if capacity_bytes else vmdk_capacity_gib
+    capacity_bytes = detected_capacity_bytes or int(disk_capacity_gib * 1024 * 1024 * 1024)
+    capacity_gib = round(capacity_bytes / (1024 * 1024 * 1024), 1) if capacity_bytes else disk_capacity_gib
     return {
         "id": service_id,
         "disk_label": disk_label,
         "name": name,
         "mount": mount,
-        "vmdk_capacity_gib": capacity_gib,
-        "vmdk_capacity": "{} GiB VMDK".format(_format_gib(capacity_gib)),
-        "vmdk_capacity_source": "detected" if detected_capacity_bytes else "configured",
+        "disk_capacity_gib": capacity_gib,
+        "disk_capacity": "{} GiB virtual disk".format(_format_gib(capacity_gib)),
+        "disk_capacity_source": "detected" if detected_capacity_bytes else "configured",
         "color": color,
         "present": present,
         "total_bytes": total,

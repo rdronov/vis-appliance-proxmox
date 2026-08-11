@@ -14,7 +14,7 @@ usage() {
 Usage: vis-update [--repo-url URL] [--branch BRANCH]
 
 Pull the latest VIS appliance code from GitHub and apply web application,
-script, systemd, and Python dependency updates without redeploying the OVA.
+script, systemd, and Python dependency updates without rebuilding the template.
 EOF
 }
 

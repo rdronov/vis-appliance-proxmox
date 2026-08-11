@@ -33,7 +33,7 @@ sudo apt-get install -y \
   git \
   logrotate \
   net-tools \
-  open-vm-tools \
+  qemu-guest-agent \
   openssh-server \
   ldap-utils \
   linuxptp \
@@ -73,6 +73,6 @@ sudo mkdir -p \
   /opt/vis/state \
   /root/setup
 
-echo '> Enabling SSH and VMware tools...'
+echo '> Enabling SSH and QEMU Guest Agent...'
 sudo systemctl enable ssh
-sudo systemctl enable open-vm-tools
+sudo systemctl enable qemu-guest-agent

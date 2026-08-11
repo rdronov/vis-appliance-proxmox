@@ -3111,9 +3111,9 @@ data_volume: /data
         self.assertIn("Memory", body)
         self.assertIn("Storage Partition", body)
         self.assertTrue(body.index("Disk 1") < body.index("Disk 2") < body.index("Disk 3") < body.index("Disk 4") < body.index("Disk 5") < body.index("Disk 6"))
-        self.assertIn("200 GiB VMDK", body)
-        self.assertIn("60 GiB VMDK", body)
-        self.assertIn("2 GiB VMDK", body)
+        self.assertIn("200 GiB virtual disk", body)
+        self.assertIn("60 GiB virtual disk", body)
+        self.assertIn("2 GiB virtual disk", body)
         self.assertIn("Expand Filesystem", body)
         self.assertIn("Software Depot", body)
         self.assertIn("Identity Providers", body)
@@ -3136,8 +3136,8 @@ data_volume: /data
         with patch("vis.web.shutil.disk_usage", return_value=usage), patch("vis.web.subprocess.run", side_effect=run):
             partition = _storage_health("identity-providers", "Disk 6", "Identity Providers", "/opt/vis/data/identity", 5, "#5ad1c8")
 
-        self.assertEqual("2 GiB VMDK", partition["vmdk_capacity"])
-        self.assertEqual("detected", partition["vmdk_capacity_source"])
+        self.assertEqual("2 GiB virtual disk", partition["disk_capacity"])
+        self.assertEqual("detected", partition["disk_capacity_source"])
 
     def test_system_health_expand_message_is_dismissible_and_clears_url(self):
         response = self.client.get("/system-health?expand_status=ok&expand_message=expanded+depot")

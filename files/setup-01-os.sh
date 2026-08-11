@@ -1,24 +1,18 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 set -euo pipefail
 
-systemctl enable ssh
-systemctl start ssh
+echo -e "\e[92mConfiguring the appliance OS...\e[0m" > /dev/console
 
-echo -e "\e[92mConfiguring root password ..." > /dev/console
-echo "root:${ROOT_PASSWORD}" | /usr/sbin/chpasswd
+systemctl enable --now qemu-guest-agent.service
+systemctl enable --now ssh.service
+rm -f /etc/sudoers.d/99-vis-packer
 
-if [ -n "${SSH_PUBLIC_KEY}" ]; then
-    echo -e "\e[92mConfiguring root SSH public key ..." > /dev/console
-    mkdir -p /root/.ssh
-    chmod 700 /root/.ssh
-    touch /root/.ssh/authorized_keys
-    grep -qxF "${SSH_PUBLIC_KEY}" /root/.ssh/authorized_keys || echo "${SSH_PUBLIC_KEY}" >> /root/.ssh/authorized_keys
-    chmod 600 /root/.ssh/authorized_keys
-    chown -R root:root /root/.ssh
-    sed -i -E "s/^#?PermitRootLogin .*/PermitRootLogin prohibit-password/" /etc/ssh/sshd_config
-    grep -q "^PermitRootLogin" /etc/ssh/sshd_config || echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config
-    systemctl reload ssh
+if [ "${OS_PASSWORD_ENABLED}" != "true" ]; then
+  passwd -l visadmin >/dev/null 2>&1 || true
+  echo 'visadmin ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/90-visadmin-cloud
+  chmod 0440 /etc/sudoers.d/90-visadmin-cloud
+else
+  rm -f /etc/sudoers.d/90-visadmin-cloud
 fi
 
 mkdir -p \

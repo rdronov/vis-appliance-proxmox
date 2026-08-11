@@ -1,0 +1,28 @@
+proxmox_url                 = "https://pve.example.com:8006/api2/json"
+proxmox_username            = "packer@pve!vis-builder"
+proxmox_token               = "replace-with-api-token-secret"
+proxmox_node                = "pve01"
+proxmox_storage             = "local-lvm"
+proxmox_bridge              = "vmbr0"
+insecure_skip_tls_verify    = true
+template_vmid               = 9100
+
+# The ISO must already exist on ISO-capable Proxmox storage.
+iso_file     = "local:iso/ubuntu-26.04-live-server-amd64.iso"
+iso_checksum = "sha256:dec49008a71f6098d0bcfc822021f4d042d5f2db279e4d75bdd981304f1ca5d9"
+
+# Temporary account used only while Packer provisions the build VM.
+guest_username = "visadmin"
+guest_password = "replace-with-a-temporary-build-password"
+guest_password_hash = "replace-with-openssl-passwd-6-output"
+
+# Optional sizing overrides.
+# cpu_type           = "x86-64-v2-AES"
+# cores              = 2
+# memory             = 4096
+# os_disk_size       = "40G"
+# depot_disk_size    = "200G"
+# sftp_disk_size     = "15G"
+# registry_disk_size = "60G"
+# dns_disk_size      = "2G"
+# identity_disk_size = "2G"
