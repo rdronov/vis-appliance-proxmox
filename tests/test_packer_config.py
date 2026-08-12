@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -30,6 +31,22 @@ class ProxmoxPackerTest(unittest.TestCase):
         self.assertIn("qemu_agent      = true", self.packer)
         self.assertNotIn("skip_convert_to_template", self.packer)
 
+    def test_default_proxmox_names_are_short(self):
+        template_name = re.search(
+            r'variable "template_name" \{.*?default = "([^"]+)"',
+            self.packer,
+            re.DOTALL,
+        ).group(1)
+        version = re.search(
+            r'variable "version" \{.*?default = "([^"]+)"',
+            self.packer,
+            re.DOTALL,
+        ).group(1)
+
+        self.assertEqual("vis-pve", template_name)
+        self.assertLessEqual(len(f"{template_name}-build"), 40)
+        self.assertLessEqual(len(f"{template_name}-{version}"), 40)
+
     def test_builder_uses_six_direct_proxmox_disks(self):
         self.assertEqual(6, self.packer.count('  disks {'))
         self.assertEqual(6, self.packer.count('    format       = "raw"'))
@@ -49,7 +66,7 @@ class ProxmoxPackerTest(unittest.TestCase):
     def test_autoinstall_partitions_all_service_disks(self):
         user_data = (ROOT / "http" / "user-data").read_text(encoding="utf-8")
         self.assertIn("- qemu-guest-agent", user_data)
-        self.assertIn("systemctl enable qemu-guest-agent", user_data)
+        self.assertIn("systemctl, enable, qemu-guest-agent", user_data)
         for device in ("/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"):
             self.assertIn(f"path: {device}", user_data)
         for mount in (
@@ -61,6 +78,19 @@ class ProxmoxPackerTest(unittest.TestCase):
             "/opt/vis/data/identity",
         ):
             self.assertIn(f"path: {mount}", user_data)
+
+    def test_autoinstall_late_commands_are_command_lists(self):
+        user_data = (ROOT / "http" / "user-data").read_text(encoding="utf-8")
+
+        self.assertNotIn("    - curtin in-target", user_data)
+        self.assertIn(
+            "    - [curtin, in-target, --target=/target, --, systemctl, enable, ssh]",
+            user_data,
+        )
+        self.assertIn(
+            '    - [curtin, in-target, --target=/target, --, /bin/sh, -c, "echo \'visadmin ALL=(ALL) NOPASSWD: ALL\' > /etc/sudoers.d/99-vis-packer && chmod 0440 /etc/sudoers.d/99-vis-packer"]',
+            user_data,
+        )
 
     def test_optional_vcf_download_tool_is_staged_after_install(self):
         self.assertIn("vcf-download-tool-*", self.packer)

@@ -225,10 +225,10 @@ autoinstall:
         device: fmt-vis-identity
         path: /opt/vis/data/identity
   late-commands:
-    - curtin in-target --target=/target -- systemctl enable ssh
-    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
-    - curtin in-target --target=/target -- usermod -aG sudo visadmin
-    - curtin in-target --target=/target -- /bin/sh -c "echo 'visadmin ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99-vis-packer && chmod 0440 /etc/sudoers.d/99-vis-packer"
+    - [curtin, in-target, --target=/target, --, systemctl, enable, ssh]
+    - [curtin, in-target, --target=/target, --, systemctl, enable, qemu-guest-agent]
+    - [curtin, in-target, --target=/target, --, usermod, -aG, sudo, visadmin]
+    - [curtin, in-target, --target=/target, --, /bin/sh, -c, "echo 'visadmin ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99-vis-packer && chmod 0440 /etc/sudoers.d/99-vis-packer"]
   user-data:
     disable_root: false
     package_update: true

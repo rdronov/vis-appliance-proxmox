@@ -60,7 +60,7 @@ variable "version" {
 
 variable "template_name" {
   type    = string
-  default = "vcf-infrastructure-services-appliance-pve"
+  default = "vis-pve"
 }
 
 variable "iso_file" {
