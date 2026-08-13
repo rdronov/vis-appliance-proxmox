@@ -83,7 +83,7 @@ Before Packer powers off the VM, `scripts/vis-cleanup.sh`:
 
 - Locks the temporary build password and removes authorized keys.
 - Removes SSH host keys and resets `/etc/machine-id`.
-- Runs `cloud-init clean --logs --seed`.
+- Removes Subiquity/curtin installer DHCP state, then runs `cloud-init clean --logs --seed` so clones use Proxmox `ipconfig0` network data.
 - Removes VIS database state and the application secret.
 - Clears package caches and transient logs.
 - Uses TRIM instead of zero-filling thin-provisioned service disks.

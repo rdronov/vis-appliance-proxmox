@@ -77,6 +77,8 @@ chmod 600 deploy/my-vis.env</code></pre>
 <pre><code>sudo systemctl status vis-firstboot.service
 sudo journalctl -u vis-firstboot.service -b
 sudo cloud-init status --long</code></pre>
+<p>If the guest receives DHCP even though the PVE Cloud-Init panel shows a static address, the template was built before installer-network cleanup was added. Rebuild the template before creating more clones. For an existing clone, use the PVE console to remove the stale installer network, write the intended static netplan, and restart <code>vis-firstboot.service</code>. Applying netplan changes the guest address and can disconnect an SSH session.</p>
+<p><code>docker0</code> can show <code>state DOWN</code> while Docker is running but no container is attached to the bridge. This is expected immediately after deployment because VIS supporting services remain disabled until they are configured and enabled in the UI. Check the daemon independently with <code>systemctl is-active docker</code>.</p>
 <h2 id="resize-a-service-disk">Resize a service disk</h2>
 <p>Resize the appropriate native PVE disk, for example the depot disk:</p>
 <pre><code>qm resize &lt;vmid&gt; scsi1 +100G</code></pre>
