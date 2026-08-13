@@ -76,6 +76,18 @@ sudo journalctl -u vis-firstboot.service -b
 sudo cloud-init status --long
 ```
 
+If the guest receives DHCP even though the PVE Cloud-Init panel shows a static
+address, the template was built before installer-network cleanup was added.
+Rebuild the template before creating more clones. For an existing clone, use
+the PVE console to remove the stale installer network, write the intended
+static netplan, and restart `vis-firstboot.service`. Applying netplan changes
+the guest address and can disconnect an SSH session.
+
+`docker0` can show `state DOWN` while Docker is running but no container is
+attached to the bridge. This is expected immediately after deployment because
+VIS supporting services remain disabled until they are configured and enabled
+in the UI. Check the daemon independently with `systemctl is-active docker`.
+
 ## Resize a service disk
 
 Resize the appropriate native PVE disk, for example the depot disk:

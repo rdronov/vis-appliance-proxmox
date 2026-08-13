@@ -16,6 +16,17 @@ sudo rm -f /etc/ssh/ssh_host_*
 sudo truncate -s 0 /etc/machine-id
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -s /etc/machine-id /var/lib/dbus/machine-id
+
+# Subiquity/curtin preserve the installer network in system Cloud-Init config.
+# System config takes precedence over the Proxmox NoCloud datasource, so a
+# reusable template must not retain the build VM's DHCP configuration.
+sudo rm -f \
+  /etc/cloud/cloud.cfg.d/50-curtin-networking.cfg \
+  /etc/cloud/cloud.cfg.d/90-installer-network.cfg \
+  /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg \
+  /etc/netplan/00-installer-config.yaml \
+  /etc/netplan/00-installer-config-*.yaml \
+  /etc/netplan/50-cloud-init.yaml
 sudo cloud-init clean --logs --seed
 
 echo '> Clearing apt caches, temporary files, and transient logs...'

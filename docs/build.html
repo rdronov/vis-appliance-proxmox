@@ -82,7 +82,7 @@ chmod 600 packer/proxmox.pkrvars.hcl</code></pre>
 <ul>
 <li>Locks the temporary build password and removes authorized keys.</li>
 <li>Removes SSH host keys and resets <code>/etc/machine-id</code>.</li>
-<li>Runs <code>cloud-init clean --logs --seed</code>.</li>
+<li>Removes Subiquity/curtin installer DHCP state, then runs <code>cloud-init clean --logs --seed</code> so clones use Proxmox <code>ipconfig0</code> network data.</li>
 <li>Removes VIS database state and the application secret.</li>
 <li>Clears package caches and transient logs.</li>
 <li>Uses TRIM instead of zero-filling thin-provisioned service disks.</li>
