@@ -28,3 +28,7 @@ http/optional-artifacts/*
 *signing-private*.pem
 *.key
 *.asc
+
+# Local secrets / environment-specific configs — never sync actual values, only .example templates.
+packer/proxmox.pkrvars.hcl
+deploy/my-vis.env
