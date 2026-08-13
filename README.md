@@ -2,9 +2,8 @@
 
 This fork builds the **VCF Infrastructure Services (VIS) Appliance** directly on Proxmox VE. Packer boots the Ubuntu Server ISO as a KVM guest, provisions VIS and its supporting services, seals the guest, and converts the VM into a Proxmox template. Deployments are full or linked PVE clones customized with Proxmox Cloud-Init and QEMU Guest Agent.
 
-There is no VMDK conversion, OVF injection, OVA packaging, VMware guestinfo, or `open-vm-tools` dependency in the appliance lifecycle.
 
-This project is based on William Lam's Apache-2.0-licensed [VCF Infrastructure Services Appliance](https://github.com/lamw/vcf-infrastructure-service-appliance). VCF remains the consumer of the services; Proxmox VE is the hypervisor running the VIS appliance.
+This project is based on William Lam's Apache-2.0-licensed [VCF Infrastructure Services Appliance](https://github.com/lamw/vcf-infrastructure-service-appliance). There is no VMDK conversion, OVF injection, OVA packaging, VMware guestinfo, or `open-vm-tools` dependency in the appliance lifecycle. VCF remains the consumer of the services; Proxmox VE is the hypervisor running the VIS appliance.
 
 ![VIS Appliance service summary](docs/images/vis-service-summary.png)
 
