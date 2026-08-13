@@ -112,6 +112,19 @@ class ProxmoxPackerTest(unittest.TestCase):
             self.assertIn(expected, cleanup)
         self.assertNotIn("dd if=/dev/zero", cleanup)
 
+    def test_template_drops_installer_dhcp_before_cloud_init_clean(self):
+        cleanup = (ROOT / "scripts" / "vis-cleanup.sh").read_text(encoding="utf-8")
+        cloud_init_clean = cleanup.index("cloud-init clean --logs --seed")
+        for stale_network_file in (
+            "/etc/cloud/cloud.cfg.d/50-curtin-networking.cfg",
+            "/etc/cloud/cloud.cfg.d/90-installer-network.cfg",
+            "/etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg",
+            "/etc/netplan/00-installer-config.yaml",
+            "/etc/netplan/50-cloud-init.yaml",
+        ):
+            self.assertIn(stale_network_file, cleanup)
+            self.assertLess(cleanup.index(stale_network_file), cloud_init_clean)
+
     def test_firstboot_consumes_cloud_init_not_ovf_guestinfo(self):
         firstboot = (ROOT / "scripts" / "vis-firstboot.sh").read_text(encoding="utf-8")
         setup = (ROOT / "files" / "setup.sh").read_text(encoding="utf-8")
